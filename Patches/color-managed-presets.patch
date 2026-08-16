@@ -1,0 +1,373 @@
+diff --git a/ChromaticFocus/AppModel.swift b/ChromaticFocus/AppModel.swift
+index 54624c9..745b1d9 100644
+--- a/ChromaticFocus/AppModel.swift
++++ b/ChromaticFocus/AppModel.swift
+@@ -15,7 +15,7 @@ final class AppModel: ObservableObject {
+     @Published private(set) var displays: [DisplayProfile] = []
+     @Published var selectedDisplayID: CGDirectDisplayID?
+     @Published var viewingDistanceCM: Double = 55
+-    @Published var strength: Double = 1.0
++    @Published var strength: Double = 0.5
+     @Published var usesManualScreenWidth = false
+     @Published var manualScreenWidthMM: Double = 300
+     @Published private(set) var blurParameters: BlurParameters?
+@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
+     private var captureEngine: ScreenCaptureEngine?
+     private var overlayController: OverlayWindowController?
+     private var screenObserver: NSObjectProtocol?
++    private var colorSpaceObserver: NSObjectProtocol?
+     private var startTimeoutTask: Task<Void, Never>?
+     private var hotKey: GlobalHotKey?
+     private var isStopping = false
+@@ -48,6 +49,20 @@ final class AppModel: ObservableObject {
+             }
+         }
+ 
++        colorSpaceObserver = NotificationCenter.default.addObserver(
++            forName: NSScreen.colorSpaceDidChangeNotification,
++            object: nil,
++            queue: .main
++        ) { [weak self] _ in
++            Task { @MainActor [weak self] in
++                guard let self else { return }
++                if self.isFilterActive {
++                    await self.stopFilter(reason: "Display color profile changed; the filter was safely closed.")
++                }
++                self.refreshDisplays(restoreSelection: false)
++            }
++        }
++
+         hotKey = GlobalHotKey { [weak self] in
+             Task { @MainActor [weak self] in
+                 guard let self, self.isFilterActive else { return }
+@@ -115,12 +130,12 @@ final class AppModel: ObservableObject {
+ 
+     func settingsChanged() {
+         viewingDistanceCM = min(max(viewingDistanceCM, 20), 300)
+-        strength = strength < 0.75 ? 0.5 : 1.0
++        strength = Self.normalizedStrength(strength)
+         manualScreenWidthMM = min(max(manualScreenWidthMM, 100), 2_000)
+ 
+         if let display = selectedDisplay {
+             defaults.set(viewingDistanceCM, forKey: preferenceKey("distanceCM", display: display))
+-            defaults.set(strength, forKey: preferenceKey("strength", display: display))
++            defaults.set(strength, forKey: preferenceKey("strengthV2", display: display))
+             defaults.set(usesManualScreenWidth, forKey: preferenceKey("useManualWidth", display: display))
+             defaults.set(manualScreenWidthMM, forKey: preferenceKey("manualWidthMM", display: display))
+         }
+@@ -299,10 +314,12 @@ final class AppModel: ObservableObject {
+             ? 55
+             : defaults.double(forKey: distanceKey)
+ 
+-        let strengthKey = preferenceKey("strength", display: display)
++        // Use a new preference key so upgrades from earlier beta versions reset
++        // the unexpectedly strong 100% default to the safer 50% default once.
++        let strengthKey = preferenceKey("strengthV2", display: display)
+         strength = defaults.object(forKey: strengthKey) == nil
+-            ? 1.0
+-            : defaults.double(forKey: strengthKey)
++            ? 0.5
++            : Self.normalizedStrength(defaults.double(forKey: strengthKey))
+ 
+         let manualKey = preferenceKey("useManualWidth", display: display)
+         usesManualScreenWidth = defaults.object(forKey: manualKey) == nil
+@@ -341,6 +358,13 @@ final class AppModel: ObservableObject {
+         }
+     }
+ 
++    private static func normalizedStrength(_ value: Double) -> Double {
++        let presets = [0.0, 0.25, 0.5, 1.0]
++        return presets.min { lhs, rhs in
++            abs(lhs - value) < abs(rhs - value)
++        } ?? 0.5
++    }
++
+     private func preferenceKey(_ name: String, display: DisplayProfile) -> String {
+         "display.\(display.stableKey).\(name)"
+     }
+diff --git a/ChromaticFocus/DisplayService.swift b/ChromaticFocus/DisplayService.swift
+index b40b4b2..fce1785 100644
+--- a/ChromaticFocus/DisplayService.swift
++++ b/ChromaticFocus/DisplayService.swift
+@@ -14,6 +14,7 @@ struct DisplayProfile: Identifiable {
+     let backingScaleFactor: Double
+     let isBuiltIn: Bool
+     let automaticPhysicalSizeIsPlausible: Bool
++    let colorProfileName: String
+ 
+     var resolutionDescription: String {
+         "\(captureWidthPixels) × \(captureHeightPixels) px"
+@@ -88,7 +89,8 @@ enum DisplayService {
+             physicalHeightMM: physicalHeight,
+             backingScaleFactor: Double(screen.backingScaleFactor),
+             isBuiltIn: CGDisplayIsBuiltin(displayID) != 0,
+-            automaticPhysicalSizeIsPlausible: plausible
++            automaticPhysicalSizeIsPlausible: plausible,
++            colorProfileName: screen.colorSpace?.localizedName ?? "Unavailable"
+         )
+     }
+ 
+diff --git a/ChromaticFocus/FilterRenderView.swift b/ChromaticFocus/FilterRenderView.swift
+index 7eaaf55..6949823 100644
+--- a/ChromaticFocus/FilterRenderView.swift
++++ b/ChromaticFocus/FilterRenderView.swift
+@@ -9,6 +9,7 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+     private let renderLock = NSLock()
+     private let commandQueue: MTLCommandQueue
+     private let ciContext: CIContext
++    private let outputColorSpace: CGColorSpace
+ 
+     private var latestPixelBuffer: CVPixelBuffer?
+     private var renderScheduled = false
+@@ -27,7 +28,8 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+         drawableWidth: Int,
+         drawableHeight: Int,
+         greenRadius: CGFloat,
+-        blueRadius: CGFloat
++        blueRadius: CGFloat,
++        outputColorSpace: CGColorSpace
+     ) throws {
+         guard let metalDevice = MTLCreateSystemDefaultDevice(),
+               let commandQueue = metalDevice.makeCommandQueue() else {
+@@ -37,12 +39,13 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+         self.commandQueue = commandQueue
+         self.greenRadius = greenRadius
+         self.blueRadius = blueRadius
++        self.outputColorSpace = outputColorSpace
+         self.ciContext = CIContext(
+             mtlDevice: metalDevice,
+             options: [
+                 .cacheIntermediates: false,
+-                .workingColorSpace: NSNull(),
+-                .outputColorSpace: NSNull()
++                .workingColorSpace: outputColorSpace,
++                .outputColorSpace: outputColorSpace
+             ]
+         )
+ 
+@@ -51,6 +54,7 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+         delegate = self
+         framebufferOnly = false
+         colorPixelFormat = .bgra8Unorm
++        colorspace = outputColorSpace
+         clearColor = MTLClearColorMake(0, 0, 0, 1)
+         preferredFramesPerSecond = 30
+         isPaused = true
+@@ -127,10 +131,16 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+         let targetHeight = CGFloat(drawable.texture.height)
+         let targetExtent = CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
+ 
+-        var original = CIImage(
+-            cvPixelBuffer: frame,
+-            options: [.colorSpace: NSNull()]
+-        )
++        // ScreenCaptureKit tags the buffer with the display color space when
++        // colorSpaceName is left unset. Preserve that tag; only use the selected
++        // display profile as a fallback when a driver omits the attachment.
++        var original = CIImage(cvPixelBuffer: frame)
++        if original.colorSpace == nil {
++            original = CIImage(
++                cvPixelBuffer: frame,
++                options: [.colorSpace: outputColorSpace]
++            )
++        }
+ 
+         let sourceExtent = original.extent
+         var radiusScale: CGFloat = 1
+@@ -182,7 +192,7 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+             to: drawable.texture,
+             commandBuffer: commandBuffer,
+             bounds: targetExtent,
+-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!
++            colorSpace: outputColorSpace
+         )
+         commandBuffer.present(drawable)
+         commandBuffer.addCompletedHandler { [weak self] completedBuffer in
+@@ -227,7 +237,7 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+ 
+     private func isolateChannel(_ channel: RGBChannel, from image: CIImage) -> CIImage {
+         let zero = CIVector(x: 0, y: 0, z: 0, w: 0)
+-        let alpha = CIVector(x: 0, y: 0, z: 0, w: 1)
++        let opaqueBias = CIVector(x: 0, y: 0, z: 0, w: 1)
+ 
+         let redVector: CIVector
+         let greenVector: CIVector
+@@ -254,8 +264,8 @@ final class FilterRenderView: MTKView, MTKViewDelegate {
+                 "inputRVector": redVector,
+                 "inputGVector": greenVector,
+                 "inputBVector": blueVector,
+-                "inputAVector": alpha,
+-                "inputBiasVector": zero
++                "inputAVector": zero,
++                "inputBiasVector": opaqueBias
+             ]
+         )
+     }
+diff --git a/ChromaticFocus/Info.plist b/ChromaticFocus/Info.plist
+index 3c21b56..9f744d7 100644
+--- a/ChromaticFocus/Info.plist
++++ b/ChromaticFocus/Info.plist
+@@ -15,9 +15,9 @@
+     <key>CFBundlePackageType</key>
+     <string>APPL</string>
+     <key>CFBundleShortVersionString</key>
+-    <string>0.1.4</string>
++    <string>0.1.5</string>
+     <key>CFBundleVersion</key>
+-    <string>5</string>
++    <string>6</string>
+     <key>LSMinimumSystemVersion</key>
+     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+     <key>NSHighResolutionCapable</key>
+diff --git a/ChromaticFocus/MenuBarContentView.swift b/ChromaticFocus/MenuBarContentView.swift
+index d152951..0a7b478 100644
+--- a/ChromaticFocus/MenuBarContentView.swift
++++ b/ChromaticFocus/MenuBarContentView.swift
+@@ -132,6 +132,14 @@ struct MenuBarContentView: View {
+                 )
+                 .font(.caption)
+ 
++                LabeledContent(
++                    tr("Color profile", "色彩配置"),
++                    value: display.colorProfileName == "Unavailable"
++                        ? tr("Unavailable", "不可用")
++                        : display.colorProfileName
++                )
++                .font(.caption)
++
+                 if !display.automaticPhysicalSizeIsPlausible {
+                     Label(
+                         tr(
+@@ -187,14 +195,25 @@ struct MenuBarContentView: View {
+                 Text(tr("Filter strength", "滤镜强度"))
+                 Spacer()
+                 Picker(tr("Filter strength", "滤镜强度"), selection: $model.strength) {
++                    Text(tr("Color check · 0%", "原图校验 · 0%"))
++                        .tag(0.0)
++                    Text(tr("Gentle · 25%", "柔和模式 · 25%"))
++                        .tag(0.25)
+                     Text(tr("Adaptation · 50%", "适应模式 · 50%"))
+                         .tag(0.5)
+                     Text(tr("Research geometry · 100%", "研究参数 · 100%"))
+                         .tag(1.0)
+                 }
+                 .labelsHidden()
+-                .frame(width: 205)
++                .frame(width: 225)
+             }
++
++            Text(tr(
++                "The 0% option only checks color matching and applies no channel blur. Start with 25% or 50%; 100% can create conspicuous fringes around small text and sharp interface edges.",
++                "0% 仅用于校验色彩是否与原图一致，不产生通道模糊。建议先从 25% 或 50% 开始；100% 会在小字和锐利界面边缘产生较明显的彩边。"
++            ))
++            .font(.caption2)
++            .foregroundStyle(.secondary)
+         }
+     }
+ 
+@@ -311,6 +330,10 @@ struct MenuBarContentView: View {
+                 "The display configuration changed, so the filter was safely closed.",
+                 "显示器配置发生变化，滤镜已安全关闭。"
+             ),
++            "Display color profile changed; the filter was safely closed.": tr(
++                "The display color profile changed, so the filter was safely closed.",
++                "显示器色彩配置发生变化，滤镜已安全关闭。"
++            ),
+             "Screen Recording permission is required.": tr(
+                 "Screen Recording permission is required.",
+                 "需要授予屏幕录制权限。"
+diff --git a/ChromaticFocus/OverlayWindowController.swift b/ChromaticFocus/OverlayWindowController.swift
+index a7f88bb..4598b80 100644
+--- a/ChromaticFocus/OverlayWindowController.swift
++++ b/ChromaticFocus/OverlayWindowController.swift
+@@ -22,6 +22,14 @@ final class OverlayWindowController {
+         greenRadius: CGFloat,
+         blueRadius: CGFloat
+     ) throws {
++        let fallbackColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
++        let displayColorSpace: CGColorSpace
++        if let candidate = screen.colorSpace?.cgColorSpace, candidate.model == .rgb {
++            displayColorSpace = candidate
++        } else {
++            displayColorSpace = fallbackColorSpace
++        }
++
+         let panel = NonActivatingPanel(
+             contentRect: screen.frame,
+             styleMask: [.borderless, .nonactivatingPanel],
+@@ -30,6 +38,11 @@ final class OverlayWindowController {
+             screen: screen
+         )
+         panel.setFrame(screen.frame, display: false)
++        if let screenColorSpace = screen.colorSpace {
++            panel.colorSpace = screenColorSpace
++        } else if let fallbackNSColorSpace = NSColorSpace(cgColorSpace: displayColorSpace) {
++            panel.colorSpace = fallbackNSColorSpace
++        }
+         panel.level = .floating
+         panel.collectionBehavior = [
+             .canJoinAllSpaces,
+@@ -53,7 +66,8 @@ final class OverlayWindowController {
+             drawableWidth: captureWidth,
+             drawableHeight: captureHeight,
+             greenRadius: greenRadius,
+-            blueRadius: blueRadius
++            blueRadius: blueRadius,
++            outputColorSpace: displayColorSpace
+         )
+         renderView.autoresizingMask = [.width, .height]
+         panel.contentView = renderView
+diff --git a/ChromaticFocus/ScreenCaptureEngine.swift b/ChromaticFocus/ScreenCaptureEngine.swift
+index c21d28c..aae6414 100644
+--- a/ChromaticFocus/ScreenCaptureEngine.swift
++++ b/ChromaticFocus/ScreenCaptureEngine.swift
+@@ -48,6 +48,8 @@ final class ScreenCaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
+         configuration.width = captureWidth
+         configuration.height = captureHeight
+         configuration.pixelFormat = kCVPixelFormatType_32BGRA
++        // Intentionally leave colorSpaceName unset. ScreenCaptureKit then uses
++        // the selected display's own color space and tags the output buffer.
+         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+         configuration.queueDepth = 3
+         configuration.showsCursor = false
+diff --git a/ChromaticFocusTests/BlurCalculatorTests.swift b/ChromaticFocusTests/BlurCalculatorTests.swift
+index d054820..ac58f01 100644
+--- a/ChromaticFocusTests/BlurCalculatorTests.swift
++++ b/ChromaticFocusTests/BlurCalculatorTests.swift
+@@ -33,6 +33,36 @@ final class BlurCalculatorTests: XCTestCase {
+         XCTAssertEqual(half.blueRadiusPixels, full.blueRadiusPixels / 2, accuracy: 0.0001)
+     }
+ 
++    func testQuarterStrengthQuartersTheRadii() throws {
++        let full = try BlurCalculator.researchParameters(
++            viewingDistanceMM: 550,
++            screenWidthMM: 302,
++            captureWidthPixels: 3_024,
++            strength: 1.0
++        )
++        let quarter = try BlurCalculator.researchParameters(
++            viewingDistanceMM: 550,
++            screenWidthMM: 302,
++            captureWidthPixels: 3_024,
++            strength: 0.25
++        )
++
++        XCTAssertEqual(quarter.greenRadiusPixels, full.greenRadiusPixels / 4, accuracy: 0.0001)
++        XCTAssertEqual(quarter.blueRadiusPixels, full.blueRadiusPixels / 4, accuracy: 0.0001)
++    }
++
++    func testZeroStrengthIsAnUnblurredColorCheck() throws {
++        let parameters = try BlurCalculator.researchParameters(
++            viewingDistanceMM: 550,
++            screenWidthMM: 302,
++            captureWidthPixels: 3_024,
++            strength: 0
++        )
++
++        XCTAssertEqual(parameters.greenRadiusPixels, 0, accuracy: 0.0001)
++        XCTAssertEqual(parameters.blueRadiusPixels, 0, accuracy: 0.0001)
++    }
++
+     func testInvalidGeometryThrows() {
+         XCTAssertThrowsError(
+             try BlurCalculator.researchParameters(
