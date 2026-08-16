@@ -23,17 +23,36 @@ jobs:
           mkdir SourceTree
           ditto -x -k ChromaticFocus-source.zip SourceTree
           test -f SourceTree/ChromaticFocus.xcodeproj/project.pbxproj
+
           patch -d SourceTree -p1 < Patches/xcode15-compat.patch
           patch -d SourceTree -p1 < Patches/visible-window.patch
           patch -d SourceTree -p1 < Patches/bilingual-interface.patch
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SourceTree/ChromaticFocus/Info.plist)" = "0.1.4"
+          patch -d SourceTree -p1 < Patches/color-managed-presets.patch
+
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SourceTree/ChromaticFocus/Info.plist)" = "0.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' SourceTree/ChromaticFocus/Info.plist)" = "6"
+
           if /usr/libexec/PlistBuddy -c 'Print :LSUIElement' SourceTree/ChromaticFocus/Info.plist >/dev/null 2>&1; then
             echo 'LSUIElement should be absent in the visible-window build.' >&2
             exit 1
           fi
+
           grep -q '@AppStorage("interfaceLanguage")' SourceTree/ChromaticFocus/MenuBarContentView.swift
           grep -q '简体中文' SourceTree/ChromaticFocus/MenuBarContentView.swift
-          xcrun swiftc -frontend -parse SourceTree/ChromaticFocus/MenuBarContentView.swift
+          grep -q 'Color check · 0%' SourceTree/ChromaticFocus/MenuBarContentView.swift
+          grep -q 'Gentle · 25%' SourceTree/ChromaticFocus/MenuBarContentView.swift
+          grep -q 'workingColorSpace: outputColorSpace' SourceTree/ChromaticFocus/FilterRenderView.swift
+          grep -q 'outputColorSpace: outputColorSpace' SourceTree/ChromaticFocus/FilterRenderView.swift
+          grep -q 'colorspace = outputColorSpace' SourceTree/ChromaticFocus/FilterRenderView.swift
+          grep -q 'CIImage(cvPixelBuffer: frame)' SourceTree/ChromaticFocus/FilterRenderView.swift
+
+          if grep -q 'NSNull()' SourceTree/ChromaticFocus/FilterRenderView.swift; then
+            echo 'Color management was disabled with NSNull().' >&2
+            exit 1
+          fi
+
+          find SourceTree/ChromaticFocus -name '*.swift' -print0 \
+            | xargs -0 xcrun swiftc -frontend -parse
 
       - name: Show Apple toolchain
         run: |
@@ -54,6 +73,8 @@ jobs:
             -configuration Release \
             -destination 'platform=macOS' \
             -derivedDataPath "$PWD/.build/DerivedData" \
+            ARCHS='arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             clean build
@@ -62,12 +83,23 @@ jobs:
         run: |
           set -euo pipefail
           APP="$PWD/.build/DerivedData/Build/Products/Release/ChromaticFocus.app"
+          EXECUTABLE="$APP/Contents/MacOS/ChromaticFocus"
+
           test -d "$APP"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "0.1.4"
+          test -x "$EXECUTABLE"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" = "0.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" = "6"
+
           if /usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$APP/Contents/Info.plist" >/dev/null 2>&1; then
             echo 'Packaged app is still configured as a background-only UI element.' >&2
             exit 1
           fi
+
+          ARCHS_FOUND="$(lipo -archs "$EXECUTABLE")"
+          echo "Architectures: $ARCHS_FOUND"
+          grep -qw arm64 <<<"$ARCHS_FOUND"
+          grep -qw x86_64 <<<"$ARCHS_FOUND"
+
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$PWD/ChromaticFocus-macOS.zip"
@@ -88,16 +120,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="v0.1.4-beta"
+          TAG="v0.1.5-beta"
           cat > release-notes.md <<'EOF'
-          ChromaticFocus 0.1.4 beta（实验版）
+          ChromaticFocus 0.1.5 beta（实验版）
 
-          新增界面语言切换：
-          - 跟随系统
-          - 简体中文
-          - English
+          本版重点修复明显的整体偏色：
+          - 屏幕捕获不再丢弃原始色彩标签；
+          - Core Image 的输入、工作与输出流程使用当前显示器的色彩配置；
+          - Metal 画面和覆盖窗口也标记为同一显示器色彩空间；
+          - 显示器色彩配置变化时，滤镜会安全关闭并重新读取参数。
 
-          语言选择会被记住，主窗口、菜单栏窗口、状态提示、权限按钮和常见错误信息都会随之切换。
+          强度设置也作了调整：
+          - 原图校验 · 0%：不施加通道模糊，只用于检查颜色匹配；
+          - 柔和模式 · 25%；
+          - 适应模式 · 50%（新版默认）；
+          - 研究参数 · 100%（会让小字和锐利边缘出现更明显彩边）。
+
+          建议先开启“原图校验 · 0%”。除实时捕获带来的轻微延迟外，整体颜色应当接近原始屏幕；确认后再尝试 25% 或 50%。
 
           下载 `ChromaticFocus-macOS.zip`，解压后把 `ChromaticFocus.app` 拖入“应用程序”。第一次启动时，macOS 可能要求你前往“系统设置 → 隐私与安全性”点击“仍要打开”；之后再授予“屏幕与系统音频录制”权限。
 
@@ -106,7 +145,7 @@ jobs:
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" \
-              --title "ChromaticFocus 0.1.4 beta" \
+              --title "ChromaticFocus 0.1.5 beta" \
               --notes-file release-notes.md \
               --prerelease
             gh release upload "$TAG" \
@@ -118,7 +157,7 @@ jobs:
               ChromaticFocus-macOS.zip \
               ChromaticFocus-macOS.zip.sha256 \
               --target "$GITHUB_SHA" \
-              --title "ChromaticFocus 0.1.4 beta" \
+              --title "ChromaticFocus 0.1.5 beta" \
               --notes-file release-notes.md \
               --prerelease
           fi
