@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -58,7 +58,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$PWD/ChromaticFocus-macOS.zip"
           shasum -a 256 "$PWD/ChromaticFocus-macOS.zip" > "$PWD/ChromaticFocus-macOS.zip.sha256"
 
-      - name: Upload downloadable app
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ChromaticFocus-macOS
@@ -67,3 +67,36 @@ jobs:
             ChromaticFocus-macOS.zip.sha256
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish beta release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v0.1.2-beta"
+          cat > release-notes.md <<'EOF'
+          ChromaticFocus 0.1.2 beta（实验版）
+
+          下载 `ChromaticFocus-macOS.zip`，解压后把 `ChromaticFocus.app` 拖入“应用程序”。第一次请右键 App 选择“打开”，然后授予“屏幕与系统音频录制”权限。
+
+          这是实验性纵向色差显示滤镜，不是经过验证的近视治疗，也不代表能够永久缩短眼轴。该构建为临时签名，尚未经过 Apple 公证。
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "ChromaticFocus 0.1.2 beta" \
+              --notes-file release-notes.md \
+              --prerelease
+            gh release upload "$TAG" \
+              ChromaticFocus-macOS.zip \
+              ChromaticFocus-macOS.zip.sha256 \
+              --clobber
+          else
+            gh release create "$TAG" \
+              ChromaticFocus-macOS.zip \
+              ChromaticFocus-macOS.zip.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "ChromaticFocus 0.1.2 beta" \
+              --notes-file release-notes.md \
+              --prerelease
+          fi
