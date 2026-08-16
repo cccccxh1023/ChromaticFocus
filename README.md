@@ -8,11 +8,21 @@
 
 ## 直接下载 App
 
-**[下载 ChromaticFocus-macOS.zip](https://github.com/cccccxh1023/ChromaticFocus/releases/download/v0.1.3-beta/ChromaticFocus-macOS.zip)**
+**[下载 ChromaticFocus 0.1.4](https://github.com/cccccxh1023/ChromaticFocus/releases/download/v0.1.4-beta/ChromaticFocus-macOS.zip)**
 
 不需要安装 Xcode，不需要打开终端，也不需要自己编译。
 
 系统要求：macOS 13 或更高版本；同时支持 Apple 芯片和 Intel Mac。
+
+## 界面语言
+
+`0.1.4 beta` 新增界面语言选择：
+
+- 跟随系统；
+- 简体中文；
+- English。
+
+语言选择会被记住。主窗口、菜单栏窗口、状态提示、权限按钮和常见错误信息会立即随之切换，不需要重启 App。
 
 ## 安装
 
@@ -23,14 +33,15 @@
 5. 如果 macOS 提示无法验证开发者或无法检查恶意软件：进入“系统设置 → 隐私与安全性”，向下滚动，在安全性区域点击“仍要打开”，然后再次确认。
 6. 允许“屏幕与系统音频录制”权限；授权后可能需要退出并重新打开 App。
 
-从 `0.1.3 beta` 开始，启动时会直接显示普通主窗口，同时也会显示 Dock 图标和屏幕右上角的菜单栏眼睛图标。
+启动时会直接显示普通主窗口，同时也会显示 Dock 图标和屏幕右上角的菜单栏眼睛图标。
 
 ## 基本使用
 
-1. 选择需要处理的显示器。
-2. 输入眼睛到屏幕的大致距离。
-3. 建议先从 `Adaptation · 50%` 开始。
-4. 点击启用滤镜。
+1. 在窗口顶部选择界面语言。
+2. 选择需要处理的显示器。
+3. 输入眼睛到屏幕的大致距离。
+4. 建议先从 `适应模式 · 50%` 开始。
+5. 点击“启用滤镜”。
 
 紧急关闭快捷键：`Control–Option–Command–R`（`⌃⌥⌘R`）。
 
@@ -48,4 +59,4 @@
 
 ## 当前状态
 
-这是 `0.1.3 beta`。GitHub Actions 已通过几何计算测试，并成功编译、临时签名和打包了通用 macOS App。由于没有 Apple Developer ID，当前 App 尚未经过 Apple 公证，第一次开启需要在 macOS 的“隐私与安全性”设置中手动允许。
+这是 `0.1.4 beta`。GitHub Actions 已通过源码解析、几何计算测试和完整 macOS 编译，并成功临时签名和打包了通用 App。由于没有 Apple Developer ID，当前 App 尚未经过 Apple 公证，第一次开启需要在 macOS 的“隐私与安全性”设置中手动允许。
