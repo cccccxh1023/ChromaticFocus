@@ -2,13 +2,13 @@
 
 [![Build macOS app](https://github.com/cccccxh1023/ChromaticFocus/actions/workflows/build.yml/badge.svg)](https://github.com/cccccxh1023/ChromaticFocus/actions/workflows/build.yml)
 
-一个实验性的 macOS 菜单栏显示滤镜：红通道保持清晰，绿通道轻度圆盘模糊，蓝通道使用更大的圆盘模糊，并按照显示器物理尺寸、原生像素和用户输入的观看距离换算滤镜半径。
+一个实验性的 macOS 显示滤镜：红通道保持清晰，绿通道轻度圆盘模糊，蓝通道使用更大的圆盘模糊，并按照显示器物理尺寸、原生像素和用户输入的观看距离换算滤镜半径。
 
 > ChromaticFocus 不是经过验证的近视治疗，也不代表能够永久缩短眼轴。当前版本是供测试使用的 beta 版。
 
 ## 直接下载 App
 
-**[下载 ChromaticFocus-macOS.zip](https://github.com/cccccxh1023/ChromaticFocus/releases/download/v0.1.2-beta/ChromaticFocus-macOS.zip)**
+**[下载 ChromaticFocus-macOS.zip](https://github.com/cccccxh1023/ChromaticFocus/releases/download/v0.1.3-beta/ChromaticFocus-macOS.zip)**
 
 不需要安装 Xcode，不需要打开终端，也不需要自己编译。
 
@@ -17,12 +17,13 @@
 ## 安装
 
 1. 下载并解压 `ChromaticFocus-macOS.zip`。
-2. 把 `ChromaticFocus.app` 拖入“应用程序”。
-3. 双击 App 尝试打开一次。
-4. 如果 macOS 提示无法验证开发者或无法检查恶意软件：进入“系统设置 → 隐私与安全性”，向下滚动，在安全性区域点击“仍要打开”，然后再次确认。
-5. 允许“屏幕与系统音频录制”权限；授权后可能需要退出并重新打开 App。
+2. 删除或移走此前安装的旧版 `ChromaticFocus.app`。
+3. 把新版 `ChromaticFocus.app` 拖入“应用程序”。
+4. 双击 App 尝试打开一次。
+5. 如果 macOS 提示无法验证开发者或无法检查恶意软件：进入“系统设置 → 隐私与安全性”，向下滚动，在安全性区域点击“仍要打开”，然后再次确认。
+6. 允许“屏幕与系统音频录制”权限；授权后可能需要退出并重新打开 App。
 
-ChromaticFocus 是菜单栏 App，不会出现在 Dock。启动后请在屏幕右上角寻找眼睛图标。
+从 `0.1.3 beta` 开始，启动时会直接显示普通主窗口，同时也会显示 Dock 图标和屏幕右上角的菜单栏眼睛图标。
 
 ## 基本使用
 
@@ -47,4 +48,4 @@ ChromaticFocus 是菜单栏 App，不会出现在 Dock。启动后请在屏幕�
 
 ## 当前状态
 
-这是 `0.1.2 beta`。GitHub Actions 已通过几何计算测试，并成功编译、临时签名和打包了通用 macOS App。由于没有 Apple Developer ID，当前 App 尚未经过 Apple 公证，第一次开启需要在 macOS 的“隐私与安全性”设置中手动允许。
+这是 `0.1.3 beta`。GitHub Actions 已通过几何计算测试，并成功编译、临时签名和打包了通用 macOS App。由于没有 Apple Developer ID，当前 App 尚未经过 Apple 公证，第一次开启需要在 macOS 的“隐私与安全性”设置中手动允许。
