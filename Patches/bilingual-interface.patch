@@ -1,0 +1,426 @@
+--- a/ChromaticFocus/MenuBarContentView.swift
++++ b/ChromaticFocus/MenuBarContentView.swift
+@@ -1,12 +1,51 @@
+ import AppKit
+ import SwiftUI
+ 
++enum InterfaceLanguage: String, CaseIterable, Identifiable {
++    case system
++    case simplifiedChinese = "zh-Hans"
++    case english = "en"
++
++    var id: String { rawValue }
++
++    var displayName: String {
++        switch self {
++        case .system:
++            return "跟随系统 / System"
++        case .simplifiedChinese:
++            return "简体中文"
++        case .english:
++            return "English"
++        }
++    }
++
++    var resolved: InterfaceLanguage {
++        guard self == .system else { return self }
++        let preferred = Locale.preferredLanguages.first?.lowercased() ?? "en"
++        return preferred.hasPrefix("zh") ? .simplifiedChinese : .english
++    }
++
++    func text(_ english: String, _ chinese: String) -> String {
++        resolved == .simplifiedChinese ? chinese : english
++    }
++}
++
+ struct MenuBarContentView: View {
+     @ObservedObject var model: AppModel
++    @AppStorage("interfaceLanguage") private var languageCode = InterfaceLanguage.system.rawValue
++
++    private var language: InterfaceLanguage {
++        InterfaceLanguage(rawValue: languageCode) ?? .system
++    }
++
++    private func tr(_ english: String, _ chinese: String) -> String {
++        language.text(english, chinese)
++    }
+ 
+     var body: some View {
+         VStack(alignment: .leading, spacing: 14) {
+             header
++            languageSection
+             Divider()
+             displaySection
+             parameterSection
+@@ -16,7 +55,7 @@
+             disclaimer
+         }
+         .padding(16)
+-        .frame(width: 360)
++        .frame(width: 390)
+         .onChange(of: model.viewingDistanceCM) { _ in model.settingsChanged() }
+         .onChange(of: model.strength) { _ in model.settingsChanged() }
+         .onChange(of: model.usesManualScreenWidth) { _ in model.settingsChanged() }
+@@ -28,25 +67,44 @@
+             VStack(alignment: .leading, spacing: 3) {
+                 Text("ChromaticFocus")
+                     .font(.headline)
+-                Text("Experimental red-in-focus display filter")
+-                    .font(.caption)
+-                    .foregroundStyle(.secondary)
++                Text(tr(
++                    "Experimental red-in-focus display filter",
++                    "实验性 Red-in-Focus 显示滤镜"
++                ))
++                .font(.caption)
++                .foregroundStyle(.secondary)
+             }
+             Spacer()
+             Circle()
+                 .fill(model.isRunning ? Color.primary : Color.secondary.opacity(0.35))
+                 .frame(width: 9, height: 9)
+-                .accessibilityLabel(model.isRunning ? "Active" : "Inactive")
++                .accessibilityLabel(model.isRunning
++                    ? tr("Active", "已启用")
++                    : tr("Inactive", "未启用"))
++        }
++    }
++
++    private var languageSection: some View {
++        HStack {
++            Label(tr("Interface language", "界面语言"), systemImage: "globe")
++            Spacer()
++            Picker(tr("Interface language", "界面语言"), selection: $languageCode) {
++                ForEach(InterfaceLanguage.allCases) { option in
++                    Text(option.displayName).tag(option.rawValue)
++                }
++            }
++            .labelsHidden()
++            .frame(width: 180)
+         }
+     }
+ 
+     private var displaySection: some View {
+         VStack(alignment: .leading, spacing: 8) {
+-            Text("Display")
++            Text(tr("Display", "显示器"))
+                 .font(.subheadline.weight(.semibold))
+ 
+             Picker(
+-                "Display",
++                tr("Display", "显示器"),
+                 selection: Binding(
+                     get: { model.selectedDisplayID },
+                     set: { model.selectDisplay($0) }
+@@ -60,14 +118,26 @@
+             .disabled(model.isFilterActive)
+ 
+             if let display = model.selectedDisplay {
+-                LabeledContent("Captured output", value: display.resolutionDescription)
+-                    .font(.caption)
+-                LabeledContent("Detected size", value: display.physicalSizeDescription)
+-                    .font(.caption)
++                LabeledContent(
++                    tr("Captured output", "捕获分辨率"),
++                    value: display.resolutionDescription
++                )
++                .font(.caption)
++
++                LabeledContent(
++                    tr("Detected size", "检测到的尺寸"),
++                    value: display.physicalSizeDescription == "Unavailable"
++                        ? tr("Unavailable", "不可用")
++                        : display.physicalSizeDescription
++                )
++                .font(.caption)
+ 
+                 if !display.automaticPhysicalSizeIsPlausible {
+                     Label(
+-                        "macOS did not report a credible physical size. Enter the screen width below.",
++                        tr(
++                            "macOS did not report a credible physical size. Enter the screen width below.",
++                            "macOS 未报告可信的物理尺寸，请在下方输入屏幕宽度。"
++                        ),
+                         systemImage: "exclamationmark.triangle"
+                     )
+                     .font(.caption)
+@@ -79,11 +149,11 @@
+ 
+     private var parameterSection: some View {
+         VStack(alignment: .leading, spacing: 10) {
+-            Text("Geometry")
++            Text(tr("Geometry", "几何参数"))
+                 .font(.subheadline.weight(.semibold))
+ 
+             HStack {
+-                Text("Viewing distance")
++                Text(tr("Viewing distance", "观看距离"))
+                 Spacer()
+                 TextField("55", value: $model.viewingDistanceCM, format: .number.precision(.fractionLength(0)))
+                     .frame(width: 58)
+@@ -92,12 +162,18 @@
+                     .foregroundStyle(.secondary)
+             }
+ 
+-            Toggle("Use a manually measured screen width", isOn: $model.usesManualScreenWidth)
+-                .toggleStyle(.checkbox)
++            Toggle(
++                tr(
++                    "Use a manually measured screen width",
++                    "使用手动测量的屏幕宽度"
++                ),
++                isOn: $model.usesManualScreenWidth
++            )
++            .toggleStyle(.checkbox)
+ 
+             if model.usesManualScreenWidth {
+                 HStack {
+-                    Text("Screen width")
++                    Text(tr("Screen width", "屏幕宽度"))
+                     Spacer()
+                     TextField("300", value: $model.manualScreenWidthMM, format: .number.precision(.fractionLength(0)))
+                         .frame(width: 66)
+@@ -107,32 +183,45 @@
+                 }
+             }
+ 
+-            Picker("Filter strength", selection: $model.strength) {
+-                Text("Adaptation · 50%").tag(0.5)
+-                Text("Research geometry · 100%").tag(1.0)
++            HStack {
++                Text(tr("Filter strength", "滤镜强度"))
++                Spacer()
++                Picker(tr("Filter strength", "滤镜强度"), selection: $model.strength) {
++                    Text(tr("Adaptation · 50%", "适应模式 · 50%"))
++                        .tag(0.5)
++                    Text(tr("Research geometry · 100%", "研究参数 · 100%"))
++                        .tag(1.0)
++                }
++                .labelsHidden()
++                .frame(width: 205)
+             }
+-            .pickerStyle(.segmented)
+         }
+     }
+ 
+     private var resultSection: some View {
+         VStack(alignment: .leading, spacing: 6) {
+-            Text("Calculated disc-blur radii")
+-                .font(.subheadline.weight(.semibold))
++            Text(tr(
++                "Calculated disc-blur radii",
++                "计算出的圆盘模糊半径"
++            ))
++            .font(.subheadline.weight(.semibold))
+ 
+             if let parameters = model.blurParameters {
+                 LabeledContent(
+-                    "Green channel",
++                    tr("Green channel", "绿色通道"),
+                     value: String(format: "%.2f px", parameters.greenRadiusPixels)
+                 )
+                 LabeledContent(
+-                    "Blue channel",
++                    tr("Blue channel", "蓝色通道"),
+                     value: String(format: "%.2f px", parameters.blueRadiusPixels)
+                 )
+             } else {
+-                Text("A valid physical screen width is required.")
+-                    .font(.caption)
+-                    .foregroundStyle(.secondary)
++                Text(tr(
++                    "A valid physical screen width is required.",
++                    "需要有效的屏幕物理宽度。"
++                ))
++                .font(.caption)
++                .foregroundStyle(.secondary)
+             }
+         }
+         .font(.caption)
+@@ -141,7 +230,9 @@
+     private var controls: some View {
+         VStack(alignment: .leading, spacing: 10) {
+             HStack {
+-                Button(model.isFilterActive ? "Close filter" : "Enable filter") {
++                Button(model.isFilterActive
++                    ? tr("Close filter", "关闭滤镜")
++                    : tr("Enable filter", "启用滤镜")) {
+                     model.toggleFilter()
+                 }
+                 .buttonStyle(.borderedProminent)
+@@ -149,21 +240,21 @@
+ 
+                 Spacer()
+ 
+-                Button("Quit") {
++                Button(tr("Quit", "退出")) {
+                     model.quit()
+                 }
+             }
+ 
+-            Text(model.statusText)
++            Text(localizedStatusText)
+                 .font(.caption)
+                 .foregroundStyle(statusColor)
+ 
+             if !model.screenCapturePermissionGranted {
+                 HStack {
+-                    Button("Request permission") {
++                    Button(tr("Request permission", "请求权限")) {
+                         model.requestScreenCapturePermission()
+                     }
+-                    Button("Open System Settings") {
++                    Button(tr("Open System Settings", "打开系统设置")) {
+                         model.openScreenCaptureSettings()
+                     }
+                 }
+@@ -171,12 +262,15 @@
+             }
+ 
+             if model.emergencyShortcutAvailable {
+-                Text("Emergency close: ⌃⌥⌘R")
++                Text(tr("Emergency close: ⌃⌥⌘R", "紧急关闭：⌃⌥⌘R"))
+                     .font(.caption)
+                     .foregroundStyle(.secondary)
+             } else {
+                 Label(
+-                    "The emergency shortcut could not be registered; close the filter from this menu.",
++                    tr(
++                        "The emergency shortcut could not be registered; close the filter from this window.",
++                        "无法注册紧急快捷键，请从此窗口关闭滤镜。"
++                    ),
+                     systemImage: "exclamationmark.triangle"
+                 )
+                 .font(.caption)
+@@ -186,14 +280,114 @@
+     }
+ 
+     private var disclaimer: some View {
+-        Text(
+-            "Experimental software, not a validated myopia treatment. Screen frames remain local, are processed in memory, and are not saved or uploaded. Stop immediately if the display causes pain, diplopia, nausea, or persistent visual disturbance."
+-        )
++        Text(tr(
++            "Experimental software, not a validated myopia treatment. Screen frames remain local, are processed in memory, and are not saved or uploaded. Stop immediately if the display causes pain, diplopia, nausea, or persistent visual disturbance.",
++            "实验性软件，并非经验证的近视治疗。屏幕画面仅在本机内存中处理，不会保存或上传。若出现眼痛、复视、恶心或持续视觉异常，请立即停止使用。"
++        ))
+         .font(.caption2)
+         .foregroundStyle(.secondary)
+         .fixedSize(horizontal: false, vertical: true)
+     }
+ 
++    private var localizedStatusText: String {
++        switch model.runState {
++        case .idle:
++            return tr("Ready", "准备就绪")
++        case .starting:
++            return tr("Starting screen capture…", "正在启动屏幕捕获…")
++        case .running:
++            return tr(
++                "Red-in-focus filter is active",
++                "Red-in-Focus 滤镜已启用"
++            )
++        case .failed(let message):
++            return localizedError(message)
++        }
++    }
++
++    private func localizedError(_ message: String) -> String {
++        let exact: [String: String] = [
++            "Display configuration changed; the filter was safely closed.": tr(
++                "The display configuration changed, so the filter was safely closed.",
++                "显示器配置发生变化，滤镜已安全关闭。"
++            ),
++            "Screen Recording permission is required.": tr(
++                "Screen Recording permission is required.",
++                "需要授予屏幕录制权限。"
++            ),
++            "Display geometry is incomplete. Check the screen-width setting.": tr(
++                "Display geometry is incomplete. Check the screen-width setting.",
++                "显示器几何参数不完整，请检查屏幕宽度设置。"
++            ),
++            "Screen Recording permission was not granted.": tr(
++                "Screen Recording permission was not granted.",
++                "未授予屏幕录制权限。"
++            ),
++            "No screen frame arrived. After granting permission, macOS may require the app to be relaunched.": tr(
++                "No screen frame arrived. After granting permission, macOS may require the app to be relaunched.",
++                "没有收到屏幕画面。授予权限后，macOS 可能要求重新启动此 App。"
++            ),
++            "The selected display is no longer available.": tr(
++                "The selected display is no longer available.",
++                "所选显示器已不可用。"
++            ),
++            "Metal is unavailable on this Mac.": tr(
++                "Metal is unavailable on this Mac.",
++                "此 Mac 无法使用 Metal。"
++            ),
++            "The display renderer could not obtain a drawable; the filter was safely closed.": tr(
++                "The display renderer could not obtain a drawable, so the filter was safely closed.",
++                "显示渲染器无法取得可绘制画面，滤镜已安全关闭。"
++            )
++        ]
++
++        if let translated = exact[message] {
++            return translated
++        }
++
++        let startPrefix = "Could not start: "
++        if message.hasPrefix(startPrefix) {
++            let detail = String(message.dropFirst(startPrefix.count))
++            return tr("Could not start:", "无法启动：") + " " + localizedDetail(detail)
++        }
++
++        let capturePrefix = "Screen capture stopped: "
++        if message.hasPrefix(capturePrefix) {
++            let detail = String(message.dropFirst(capturePrefix.count))
++            return tr("Screen capture stopped:", "屏幕捕获已停止：") + " " + localizedDetail(detail)
++        }
++
++        let gpuPrefix = "GPU rendering failed ("
++        let gpuSuffix = "); the filter was safely closed."
++        if message.hasPrefix(gpuPrefix), message.hasSuffix(gpuSuffix) {
++            let start = message.index(message.startIndex, offsetBy: gpuPrefix.count)
++            let end = message.index(message.endIndex, offsetBy: -gpuSuffix.count)
++            let detail = String(message[start..<end])
++            return language.resolved == .simplifiedChinese
++                ? "GPU 渲染失败（\(localizedDetail(detail))），滤镜已安全关闭。"
++                : "GPU rendering failed (\(localizedDetail(detail))); the filter was safely closed."
++        }
++
++        return message
++    }
++
++    private func localizedDetail(_ detail: String) -> String {
++        switch detail {
++        case "The selected display is no longer available.":
++            return tr(
++                "The selected display is no longer available.",
++                "所选显示器已不可用。"
++            )
++        case "Metal is unavailable on this Mac.":
++            return tr(
++                "Metal is unavailable on this Mac.",
++                "此 Mac 无法使用 Metal。"
++            )
++        default:
++            return detail
++        }
++    }
++
+     private var statusColor: Color {
+         if case .failed = model.runState {
+             return .red
+--- a/ChromaticFocus/Info.plist
++++ b/ChromaticFocus/Info.plist
+@@ -15,9 +15,9 @@
+     <key>CFBundlePackageType</key>
+     <string>APPL</string>
+     <key>CFBundleShortVersionString</key>
+-    <string>0.1.3</string>
++    <string>0.1.4</string>
+     <key>CFBundleVersion</key>
+-    <string>4</string>
++    <string>5</string>
+     <key>LSMinimumSystemVersion</key>
+     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+     <key>NSHighResolutionCapable</key>
