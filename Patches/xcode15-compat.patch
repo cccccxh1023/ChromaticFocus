@@ -1,0 +1,24 @@
+--- a/ChromaticFocus/DisplayService.swift
++++ b/ChromaticFocus/DisplayService.swift
+@@ -36,8 +36,8 @@
+         }
+     }
+ 
+-    static func screen(for displayID: CGDirectDisplayID) -> NSScreen? {
+-        NSScreen.screens.first { displayID(for: $0) == displayID }
++    static func screen(for targetDisplayID: CGDirectDisplayID) -> NSScreen? {
++        NSScreen.screens.first { displayID(for: $0) == targetDisplayID }
+     }
+ 
+     static func mainDisplayID() -> CGDirectDisplayID? {
+--- a/ChromaticFocus/FilterRenderView.swift
++++ b/ChromaticFocus/FilterRenderView.swift
+@@ -182,7 +182,7 @@
+             to: drawable.texture,
+             commandBuffer: commandBuffer,
+             bounds: targetExtent,
+-            colorSpace: nil
++            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!
+         )
+         commandBuffer.present(drawable)
+         commandBuffer.addCompletedHandler { [weak self] completedBuffer in
