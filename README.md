@@ -18,8 +18,8 @@
 
 1. 下载并解压 `ChromaticFocus-macOS.zip`。
 2. 把 `ChromaticFocus.app` 拖入“应用程序”。
-3. 第一次请右键 `ChromaticFocus.app`，选择“打开”。
-4. 如果 macOS 仍然拦截，请进入“系统设置 → 隐私与安全性”，在页面下方选择“仍要打开”。
+3. 双击 App 尝试打开一次。
+4. 如果 macOS 提示无法验证开发者或无法检查恶意软件：进入“系统设置 → 隐私与安全性”，向下滚动，在安全性区域点击“仍要打开”，然后再次确认。
 5. 允许“屏幕与系统音频录制”权限；授权后可能需要退出并重新打开 App。
 
 ChromaticFocus 是菜单栏 App，不会出现在 Dock。启动后请在屏幕右上角寻找眼睛图标。
@@ -47,4 +47,4 @@ ChromaticFocus 是菜单栏 App，不会出现在 Dock。启动后请在屏幕�
 
 ## 当前状态
 
-这是 `0.1.2 beta`。GitHub Actions 已通过几何计算测试，并成功编译、临时签名和打包了通用 macOS App。由于没有 Apple Developer ID，当前 App 尚未经过 Apple 公证，第一次开启通常需要使用右键“打开”。
+这是 `0.1.2 beta`。GitHub Actions 已通过几何计算测试，并成功编译、临时签名和打包了通用 macOS App。由于没有 Apple Developer ID，当前 App 尚未经过 Apple 公证，第一次开启需要在 macOS 的“隐私与安全性”设置中手动允许。
