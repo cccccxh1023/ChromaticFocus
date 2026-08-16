@@ -1,0 +1,68 @@
+name: Build macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Reconstruct source archive
+        run: |
+          set -euo pipefail
+          cat Source/ChromaticFocus-source.zip.b64.* | base64 -D > ChromaticFocus-source.zip
+          mkdir SourceTree
+          ditto -x -k ChromaticFocus-source.zip SourceTree
+          test -f SourceTree/ChromaticFocus.xcodeproj/project.pbxproj
+
+      - name: Show Apple toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Test geometry calculations
+        working-directory: SourceTree
+        run: swift test
+
+      - name: Build application
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project SourceTree/ChromaticFocus.xcodeproj \
+            -scheme ChromaticFocus \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$PWD/.build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build
+
+      - name: Package downloadable app
+        run: |
+          set -euo pipefail
+          APP="$PWD/.build/DerivedData/Build/Products/Release/ChromaticFocus.app"
+          test -d "$APP"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$PWD/ChromaticFocus-macOS.zip"
+          shasum -a 256 "$PWD/ChromaticFocus-macOS.zip" > "$PWD/ChromaticFocus-macOS.zip.sha256"
+
+      - name: Upload downloadable app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChromaticFocus-macOS
+          path: |
+            ChromaticFocus-macOS.zip
+            ChromaticFocus-macOS.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
